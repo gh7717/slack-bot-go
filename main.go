@@ -77,7 +77,22 @@ func init() {
 	channelId = os.Getenv("CHANNEL")
 	API = os.Getenv("API")
 }
+func request(uri string) (body []byte, err error) {
+	resp, err := http.Get(uri)
+	defer resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
 
+}
+func permissionDenidedMessafe() {
+
+}
 func handleBotCommands(c chan AttachmentChannel) {
 	commands := map[string]string{
 		"help":      "will tell you the available bot commands.",
@@ -93,23 +108,16 @@ func handleBotCommands(c chan AttachmentChannel) {
 		"last":      "The command shows the list of tickets are opened on last week. Week starts on Sunday and finish on Saturday.",
 		"backlog":   "The command shows the list of the current tickets in our queue."}
 
-	var attachmentChannel AttachmentChannel
-
 	for {
 		botChannel := <-botCommandChannel
 		log.Println("bot handles a command for bot")
 		commandArray := strings.Fields(botChannel.Event.Text)
 		log.Printf("DEBUG: user %s sent command to the bot", botChannel.UserId)
-		resp, err := http.Get(API + "/user/isadmin/" + botChannel.UserId)
-		defer resp.Body.Close()
+		resp, err := request(API + "/user/isadmin/" + botChannel.UserId)
 		if err != nil {
-			log.Printf("ERROR: get %s/isadmin/%s %s", API, botChannel.Event.Text, err)
+			log.Printf("ERROR: is admin check error: %s", err)
 		}
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Printf("ERROR: can't read responce: %s", err)
-		}
-		isadmin, err := strconv.ParseBool(string(body))
+		isadmin, err := strconv.ParseBool(string(resp))
 		if err != nil {
 			log.Printf("ERROR: can't parse bool %s", err)
 		}
@@ -148,17 +156,11 @@ func handleBotCommands(c chan AttachmentChannel) {
 		case "current":
 			log.Println("current")
 			fields := make([]slack.AttachmentField, 0)
-			resp, err := http.Get(API + "/users/current")
-			defer resp.Body.Close()
+			resp, err := request(API + "/users/current")
 			if err != nil {
-				log.Printf("ERROR: get %s/current", API, err)
+				log.Printf("ERROR: error during current command: %s", resp)
 			}
-			log.Println("Current user to get ticket.")
 			var user UserInfo
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Printf("ERROR: can't read responce: %s", err)
-			}
 			log.Printf("DEBUG: User: %s", body)
 			err = json.Unmarshal(body, &user)
 			if err != nil {
@@ -177,10 +179,9 @@ func handleBotCommands(c chan AttachmentChannel) {
 			c <- attachmentChannel
 		case "order":
 			log.Println("order")
-			resp, err := http.Get(API + "/users/active")
-			defer resp.Body.Close()
+			resp, err := request(API + "/users/active")
 			if err != nil {
-				log.Printf("ERROR: get %s/current", API, err)
+				log.Printf("ERROR: error during order %s", err)
 			}
 			var active_users []UserInfo
 			body, err := ioutil.ReadAll(resp.Body)
@@ -211,10 +212,9 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 			attachmentChannel.Attachment = attachment
 			c <- attachmentChannel
-			resp, err = http.Get(API + "/users/blacklisted")
-			defer resp.Body.Close()
+			resp, err = request(API + "/users/blacklisted")
 			if err != nil {
-				log.Printf("ERROR: get %s/blacklisted", API, err)
+				log.Printf("ERROR: %s/blacklisted", API, err)
 			}
 			var blacklisted_users []UserInfo
 			body, err = ioutil.ReadAll(resp.Body)
@@ -262,8 +262,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			} else {
 				log.Println("next")
 				fields := make([]slack.AttachmentField, 0)
-				resp, err := http.Get(API + "/users/next")
-				defer resp.Body.Close()
+				resp, err := request(API + "/users/next")
 				if err != nil {
 					log.Printf("ERROR: get %s/current", API, err)
 				}
@@ -307,7 +306,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 				c <- attachmentChannel
 			} else {
 				fields := make([]slack.AttachmentField, 0)
-				resp, err := http.Get(API + "/users/blacklist/" + userid)
+				resp, err := http.Get(API + "/users/blacklist/")
 				defer resp.Body.Close()
 				if err != nil {
 					log.Printf("ERROR: get %s/blacklist/", API, err)

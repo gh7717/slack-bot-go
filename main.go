@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
-	"github.com/nlopes/slack"
 	"io/ioutil"
 	"log"
 	"net"
@@ -13,6 +14,9 @@ import (
 	"regexp" //"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/nlopes/slack"
 )
 
 type User struct {
@@ -28,9 +32,6 @@ type UserInfo struct {
 	ID       string `json:"id"`
 	Engineer bool   `json:"engineer"`
 	Attuid   string `json:"attuid"`
-}
-type Token struct {
-	Token string `json:"token"`
 }
 
 type Message struct {
@@ -54,35 +55,29 @@ type AttachmentChannel struct {
 
 var (
 	api               *slack.Client
-	botKey            Token
-	userId            string
+	userId            *string
 	botId             string
 	botCommandChannel chan *BotCentral
 	botReplyChannel   chan AttachmentChannel
-	API               string
-	channelId         string
+	API               *string
+	channelId         *string
+	token             *string
 )
 
 func init() {
-	file, err := ioutil.ReadFile("./token.json")
+	userId = flag.String("user", "U03EPQS1F", "slack bot user id")
+	channelId = flag.String("channel", "G2VLDKLSX", "slack channel ID")
+	API = flag.String("api", "http://localhost:8080/api", "API url")
+	token = flag.String("crednetial", "xoxb-88562823922-NYJLdNas6mwYuYiNjLVmPMWf", "slack bot token")
+	flag.Parse()
 
-	if err != nil {
-		log.Fatal("File doesn't exist")
-	}
-
-	if err := json.Unmarshal(file, &botKey); err != nil {
-		log.Fatal("Cannot parse token.json")
-	}
-	userId = os.Getenv("USER")
-	channelId = os.Getenv("CHANNEL")
-	API = os.Getenv("API")
 }
-func request(uri string) (body []byte, err error) {
+func getRequest(uri string) (body []byte, err error) {
 	resp, err := http.Get(uri)
-	defer resp.Body.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -90,7 +85,30 @@ func request(uri string) (body []byte, err error) {
 	return body, nil
 
 }
-func permissionDenidedMessafe() {
+
+type Reader interface {
+	Read(p []byte) (n int, err error)
+}
+
+func postRequest(uri string, user UserInfo) (body []byte, err error) {
+	buf, err := json.Marshal(user)
+	if err != nil {
+		return nil, err
+	}
+	u := bytes.NewReader(buf)
+	resp, err := http.Post(uri, "application/json", u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+
+}
+func permissionDenidedMessage() {
 
 }
 func handleBotCommands(c chan AttachmentChannel) {
@@ -107,13 +125,12 @@ func handleBotCommands(c chan AttachmentChannel) {
 		"tickets":   "The command shows the list of tickets are opened on current week. Week starts on Sunday and finish on Saturday.",
 		"last":      "The command shows the list of tickets are opened on last week. Week starts on Sunday and finish on Saturday.",
 		"backlog":   "The command shows the list of the current tickets in our queue."}
-
+	var attachmentChannel AttachmentChannel
 	for {
 		botChannel := <-botCommandChannel
-		log.Println("bot handles a command for bot")
 		commandArray := strings.Fields(botChannel.Event.Text)
-		log.Printf("DEBUG: user %s sent command to the bot", botChannel.UserId)
-		resp, err := request(API + "/user/isadmin/" + botChannel.UserId)
+		log.Printf("%v", commandArray)
+		resp, err := getRequest(*API + "/user/isadmin/" + botChannel.UserId)
 		if err != nil {
 			log.Printf("ERROR: is admin check error: %s", err)
 		}
@@ -121,9 +138,8 @@ func handleBotCommands(c chan AttachmentChannel) {
 		if err != nil {
 			log.Printf("ERROR: can't parse bool %s", err)
 		}
-		log.Printf("DEBUG: Command: %s\n isadmin: %t", commandArray, isadmin)
 		switch commandArray[1] {
-		case "help":
+		case "help": // works
 			log.Println("Help command")
 			fields := make([]slack.AttachmentField, 0)
 			for k, v := range commands {
@@ -153,16 +169,16 @@ func handleBotCommands(c chan AttachmentChannel) {
 			attachmentChannel.Attachment = attachment
 			c <- attachmentChannel
 
-		case "current":
+		case "current": //works
 			log.Println("current")
 			fields := make([]slack.AttachmentField, 0)
-			resp, err := request(API + "/users/current")
+			resp, err := getRequest(*API + "/users/current")
 			if err != nil {
 				log.Printf("ERROR: error during current command: %s", resp)
 			}
 			var user UserInfo
-			log.Printf("DEBUG: User: %s", body)
-			err = json.Unmarshal(body, &user)
+
+			err = json.Unmarshal(resp, &user)
 			if err != nil {
 				log.Printf("ERROR: can't parse infromation about the user: %s", err)
 			}
@@ -177,19 +193,14 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 			attachmentChannel.Attachment = attachment
 			c <- attachmentChannel
-		case "order":
+		case "order": //works
 			log.Println("order")
-			resp, err := request(API + "/users/active")
+			resp, err := getRequest(*API + "/users/active")
 			if err != nil {
 				log.Printf("ERROR: error during order %s", err)
 			}
 			var active_users []UserInfo
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Printf("ERROR: can't read responce: %s", err)
-			}
-			log.Printf("DEBUG: Users: %s", body)
-			err = json.Unmarshal(body, &active_users)
+			err = json.Unmarshal(resp, &active_users)
 			if err != nil {
 				log.Printf("ERROR: can't parse infromation about the user: %s", err)
 			}
@@ -212,17 +223,12 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 			attachmentChannel.Attachment = attachment
 			c <- attachmentChannel
-			resp, err = request(API + "/users/blacklisted")
+			resp, err = getRequest(*API + "/users/blacklisted")
 			if err != nil {
 				log.Printf("ERROR: %s/blacklisted", API, err)
 			}
 			var blacklisted_users []UserInfo
-			body, err = ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Printf("ERROR: can't read responce: %s", err)
-			}
-			log.Printf("DEBUG: Users: %s", body)
-			err = json.Unmarshal(body, &blacklisted_users)
+			err = json.Unmarshal(resp, &blacklisted_users)
 			if err != nil {
 				log.Printf("ERROR: can't parse infromation about the user: %s", err)
 			}
@@ -245,7 +251,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 			attachmentChannel.Attachment = attachment
 			c <- attachmentChannel
-		case "next":
+		case "next": // works
 			if !isadmin {
 				fields := make([]slack.AttachmentField, 0)
 				fields = append(fields, slack.AttachmentField{
@@ -260,20 +266,13 @@ func handleBotCommands(c chan AttachmentChannel) {
 				attachmentChannel.Attachment = attachment
 				c <- attachmentChannel
 			} else {
-				log.Println("next")
 				fields := make([]slack.AttachmentField, 0)
-				resp, err := request(API + "/users/next")
+				resp, err := getRequest(*API + "/users/next")
 				if err != nil {
 					log.Printf("ERROR: get %s/current", API, err)
 				}
-				log.Println("Current user to get ticket.")
 				var user UserInfo
-				body, err := ioutil.ReadAll(resp.Body)
-				if err != nil {
-					log.Printf("ERROR: can't read responce: %s", err)
-				}
-				log.Printf("DEBUG: User: %s", body)
-				err = json.Unmarshal(body, &user)
+				err = json.Unmarshal(resp, &user)
 				if err != nil {
 					log.Printf("ERROR: can't parse infromation about the user: %s", err)
 				}
@@ -289,8 +288,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 				attachmentChannel.Attachment = attachment
 				c <- attachmentChannel
 			}
-		case "blacklist":
-			log.Println("blacklist")
+		case "blacklist": //works
 			if !isadmin {
 				fields := make([]slack.AttachmentField, 0)
 				fields = append(fields, slack.AttachmentField{
@@ -305,42 +303,48 @@ func handleBotCommands(c chan AttachmentChannel) {
 				attachmentChannel.Attachment = attachment
 				c <- attachmentChannel
 			} else {
-				fields := make([]slack.AttachmentField, 0)
-				resp, err := http.Get(API + "/users/blacklist/")
-				defer resp.Body.Close()
-				if err != nil {
-					log.Printf("ERROR: get %s/blacklist/", API, err)
+				if len(commandArray) < 3 {
+					log.Printf("error: user is not specified")
+					fields := make([]slack.AttachmentField, 0)
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: "You must specify user",
+					})
+					attachment := &slack.Attachment{
+						Pretext: "Error",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				} else {
+					mentionedUser := commandArray[2][2 : len(commandArray[2])-1]
+					log.Printf(mentionedUser)
+					fields := make([]slack.AttachmentField, 0)
+					r, err := getRequest(*API + "/user/blacklist/" + mentionedUser)
+					log.Printf("%s", r)
+					if err != nil {
+						log.Printf("ERROR: get %s/blacklist/", API, err)
+					}
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: fmt.Sprintf("The user <@%s> has been blacklisted", mentionedUser),
+					})
+					attachment := &slack.Attachment{
+						Pretext: "",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
 				}
-				log.Println("Current user to get ticket.")
-				var user UserInfo
-				body, err := ioutil.ReadAll(resp.Body)
-				if err != nil {
-					log.Printf("ERROR: can't read responce: %s", err)
-				}
-				log.Printf("DEBUG: User: %s", body)
-				err = json.Unmarshal(body, &user)
-				if err != nil {
-					log.Printf("ERROR: can't parse infromation about the user: %s", err)
-				}
-				fields = append(fields, slack.AttachmentField{
-					Title: "",
-					Value: "We are waiting for <@" + user.ID + "> to grab a ticket",
-				})
-				attachment := &slack.Attachment{
-					Pretext: "Current",
-					Color:   "#0a84c1",
-					Fields:  fields,
-				}
-				attachmentChannel.Attachment = attachment
-				c <- attachmentChannel
 			}
-		case "whitelist":
-			log.Println("whitelist")
+		case "whitelist": //works
 			if !isadmin {
 				fields := make([]slack.AttachmentField, 0)
 				fields = append(fields, slack.AttachmentField{
 					Title: "",
-					Value: "Only admin can execute next command",
+					Value: "Only admin can execute whitelist command",
 				})
 				attachment := &slack.Attachment{
 					Pretext: "Current",
@@ -350,8 +354,117 @@ func handleBotCommands(c chan AttachmentChannel) {
 				attachmentChannel.Attachment = attachment
 				c <- attachmentChannel
 			} else {
+				if len(commandArray) < 3 {
+					log.Printf("error: user is not specified")
+					fields := make([]slack.AttachmentField, 0)
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: "You must specify user",
+					})
+					attachment := &slack.Attachment{
+						Pretext: "Error",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				} else {
+					mentionedUser := commandArray[2][2 : len(commandArray[2])-1]
+					log.Printf(mentionedUser)
+					fields := make([]slack.AttachmentField, 0)
+					r, err := getRequest(*API + "/user/whitelist/" + mentionedUser)
+					log.Printf("%s", r)
+					if err != nil {
+						log.Printf("ERROR: get %s/whitelist/", API, err)
+					}
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: fmt.Sprintf("The user <@%s> has been whitelisted", mentionedUser),
+					})
+					attachment := &slack.Attachment{
+						Pretext: "",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				}
 			}
 		case "add":
+			if !isadmin {
+				fields := make([]slack.AttachmentField, 0)
+				fields = append(fields, slack.AttachmentField{
+					Title: "",
+					Value: "Only admin can execute add command",
+				})
+				attachment := &slack.Attachment{
+					Pretext: "Error",
+					Color:   "#0a84c1",
+					Fields:  fields,
+				}
+				attachmentChannel.Attachment = attachment
+				c <- attachmentChannel
+			} else {
+				// check all flags. the flags can be in any order
+				if len(commandArray) < 4 {
+					log.Printf("error: user is not specified")
+					fields := make([]slack.AttachmentField, 0)
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: "You must specify user: <bot> add <slack user name> <attuid>",
+					})
+					attachment := &slack.Attachment{
+						Pretext: "Error",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				} else {
+					var us UserInfo
+					slackUser, err := api.GetUserInfo(commandArray[2][2 : len(commandArray[2])-1])
+					if err != nil {
+						log.Printf("%s\n", err)
+					}
+					us.Name = slackUser.Name
+					us.IsActive = true
+					us.Current = false
+					us.RealName = slackUser.RealName
+					if len(commandArray) < 5 {
+						us.IsAdmin = false
+					} else {
+						// add parsing admin variable
+						us.IsAdmin = true
+					}
+					us.ID = slackUser.ID
+					if len(commandArray) == 6 {
+						us.Engineer, err = strconv.ParseBool(commandArray[5])
+						if err != nil {
+							log.Printf("%s", err)
+						}
+					} else {
+						us.Engineer = true
+					}
+					us.Attuid = commandArray[3]
+					fields := make([]slack.AttachmentField, 0)
+					r, err := postRequest(*API+"/user", us)
+					log.Printf("%s - %s", *API+"/user", r)
+					if err != nil {
+						log.Printf("ERROR: get %s/whitelist/", API, err)
+					}
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: fmt.Sprintf("The user <@%s> has been added", us.ID),
+					})
+					attachment := &slack.Attachment{
+						Pretext: "",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				}
+			}
 			log.Println("add")
 			if !isadmin {
 				fields := make([]slack.AttachmentField, 0)
@@ -387,7 +500,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 		case "admins":
 			log.Println("admin")
-			resp, err := http.Get(API + "/users/admins")
+			resp, err := http.Get(*API + "/users/admins")
 			defer resp.Body.Close()
 			if err != nil {
 				log.Printf("ERROR: get %s/admins", API, err)
@@ -397,7 +510,6 @@ func handleBotCommands(c chan AttachmentChannel) {
 			if err != nil {
 				log.Printf("ERROR: can't read responce: %s", err)
 			}
-			log.Printf("DEBUG: Users: %s", body)
 			err = json.Unmarshal(body, &active_users)
 			if err != nil {
 				log.Printf("ERROR: can't parse infromation about the user: %s", err)
@@ -427,6 +539,19 @@ func handleBotCommands(c chan AttachmentChannel) {
 			log.Println("last")
 		case "backlog":
 			log.Println("backlog")
+		default:
+			fields := make([]slack.AttachmentField, 0)
+			fields = append(fields, slack.AttachmentField{
+				Title: "",
+				Value: fmt.Sprintf("Not sure what do you mean: %s", commandArray[1]),
+			})
+			attachment := &slack.Attachment{
+				Pretext: "Error",
+				Color:   "#0a84c1",
+				Fields:  fields,
+			}
+			attachmentChannel.Attachment = attachment
+			c <- attachmentChannel
 		}
 
 	}
@@ -439,8 +564,7 @@ func handleBotReply() {
 		params.Markdown = true
 		params.AsUser = true
 		params.Attachments = []slack.Attachment{*ac.Attachment}
-		log.Printf("DEBUG: Channel ID = %s", channelId)
-		_, _, errPostMessage := api.PostMessage(channelId, ac.DisplayTitle, params)
+		_, _, errPostMessage := api.PostMessage(*channelId, ac.DisplayTitle, params)
 		if errPostMessage != nil {
 			log.Println("ERROR: error during post message %s", errPostMessage)
 		}
@@ -495,7 +619,7 @@ func main() {
 	logger := log.New(os.Stdout, "slack-bot: ", log.Lshortfile|log.LstdFlags)
 	slack.SetLogger(logger)
 
-	api = slack.New(botKey.Token)
+	api = slack.New(*token)
 	api.SetDebug(false)
 
 	rtm := api.NewRTM()
@@ -511,28 +635,23 @@ func main() {
 
 Loop:
 	for {
+		time.Sleep(time.Second * 1)
 		select {
 		case msg := <-rtm.IncomingEvents:
 			switch ev := msg.Data.(type) {
 			case *slack.ConnectedEvent:
 				botId = ev.Info.User.ID
-				log.Println("Infos:", ev.Info)
-				log.Println("Connection counter:", ev.ConnectionCount)
-				log.Printf("Team ID: %s Team Name: %s Team Domain: %s\n", ev.Info.Team.ID, ev.Info.Team.Name, ev.Info.Team.Domain)
 				//groups, _ := api.GetGroups(false)
 				ip, err := getIpAddress()
 				if err != nil {
 					fmt.Printf("ERROR: getting IP address error: %s", err)
 				}
-				_, _, channel, err := rtm.OpenIMChannel(userId)
+				_, _, channel, err := rtm.OpenIMChannel(*userId)
 				rtm.PostMessage(channel, "```"+botRestarted+ip+"```", params)
-
+				//whyt?????
 			case *slack.MessageEvent:
-				log.Println("Channel id:", ev.Channel)
-
 				switch s := ev.Channel[0]; string(s) {
 				case "D":
-					log.Println("Direct message")
 				case "G":
 					log.Println("Group")
 					groupInfo, err := api.GetGroupInfo(ev.Channel)
@@ -545,18 +664,16 @@ Loop:
 						UserId: ev.User,
 					}
 					if ev.Type == "message" && strings.HasPrefix(ev.Text, "<@"+botId+">") {
-						log.Println("the message for bot")
 						botCommandChannel <- botCentral
 					}
 				case "C":
-					log.Println("Channel")
 				}
 			case *slack.RTMError:
-				log.Printf("Error: %s\n", ev.Error())
+				log.Fatal("Error: %s\n", ev.Error())
 			case *slack.LatencyReport:
 				log.Printf("Current latency: %v\n", ev.Value)
 			case *slack.InvalidAuthEvent:
-				log.Printf("Invalid credentials")
+				log.Fatal("Invalid credentials")
 				break Loop
 
 			default:

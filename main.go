@@ -487,7 +487,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 				fields := make([]slack.AttachmentField, 0)
 				fields = append(fields, slack.AttachmentField{
 					Title: "",
-					Value: "Only admin can execute next command",
+					Value: "Only admin can execute delete command",
 				})
 				attachment := &slack.Attachment{
 					Pretext: "Current",
@@ -497,6 +497,36 @@ func handleBotCommands(c chan AttachmentChannel) {
 				attachmentChannel.Attachment = attachment
 				c <- attachmentChannel
 			} else {
+				if len(commandArray) < 3 {
+					log.Printf("error: user is not specified")
+					fields := make([]slack.AttachmentField, 0)
+					fields = append(fields, slack.AttachmentField{
+						Title: "",
+						Value: "You must specify user: <bot> del <slack user name>",
+					})
+					attachment := &slack.Attachment{
+						Pretext: "Error",
+						Color:   "#0a84c1",
+						Fields:  fields,
+					}
+					attachmentChannel.Attachment = attachment
+					c <- attachmentChannel
+				} else {
+
+					slackUser, err := api.GetUserInfo(commandArray[2][2 : len(commandArray[2])-1])
+					if err != nil {
+						log.Printf("%s\n", err)
+					}
+					req, err := http.NewRequest("DELETE", *API+"/user/"+slackUser.ID, nil)
+					if err != nil {
+						log.Printf("%s\n", err)
+					}
+					resp, err := http.DefaultClient.Do(req)
+					if err != nil {
+						log.Printf("%s\n", err)
+					}
+					log.Printf("%s", resp)
+				}
 			}
 		case "admins":
 			log.Println("admin")

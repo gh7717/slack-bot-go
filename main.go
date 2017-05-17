@@ -11,7 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp" //"sort"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +22,8 @@ import (
 )
 
 type User struct {
-	Info   slack.User
-	Rating int
+	Info slack.User
+	//Rating int
 }
 type UserInfo struct {
 	Name     string `json:"name"`
@@ -36,6 +36,7 @@ type UserInfo struct {
 	Attuid   string `json:"attuid"`
 }
 
+/*
 type Message struct {
 	ChannelId string
 	Timestamp string
@@ -43,7 +44,7 @@ type Message struct {
 	Rating    int
 	User      User
 }
-
+*/
 type BotCentral struct {
 	Group  *slack.Group
 	Event  *slack.MessageEvent
@@ -78,40 +79,68 @@ func init() {
 	flag.Parse()
 
 }
+func parseActiveTickets(tickets []tickets.Ticket) ([]slack.AttachmentField, error) {
+	url := "https://www.e-access.att.com/ushportal/search1.cfm?searchtype=SeeTkt&criteria"
+	fields := make([]slack.AttachmentField, 0)
+	var state map[string]int
+	state = make(map[string]int)
+	for _, ticket := range tickets {
+		st := strings.Replace(strings.Split(ticket.State, "-")[0], " ", "", -1)
+		state[st] = state[st] + 1
+		field := slack.AttachmentField{
+			//Title: fmt.Sprintf("<%s=%s|#%s> - sev: %s - %s - %s", url, ticket.Number, ticket.Number, ticket.Sev, ticket.State, ticket.Owner),
+			Value: fmt.Sprintf("```<%s=%s|#%s> - sev: %s - %s - %s\nOpened:  %s\t Last modified: %s```", url, ticket.Number, ticket.Number, ticket.Sev, ticket.State, ticket.Owner, ticket.Opened, ticket.LastModified),
+			Short: true,
+		}
+		fields = append(fields, field)
+	}
+	field := slack.AttachmentField{
+		Title: fmt.Sprintf("Total: %d", len(tickets)),
+		Value: fmt.Sprintf("Active : %d\t Deferred : %d\t Closed : %d\t Ready to Close: %d", state["Active"], state["Deferred"], state["Closed"], state["ReadytoClose"]),
+		//Short: false,
+	}
+	fields = append(fields, field)
+	return fields, nil
+}
 func parseTickets(tickets []tickets.Ticket, opened bool) ([]slack.AttachmentField, error) {
 	url := "https://www.e-access.att.com/ushportal/search1.cfm?searchtype=SeeTkt&criteria"
 	fields := make([]slack.AttachmentField, 0)
-	var ticketReport map[time.Weekday][]string
+	var (
+		ticketReport map[time.Weekday][]string
+		state        map[string]int
+		parseField   time.Weekday
+		Weekdays     = []time.Weekday{
+			time.Monday,
+			time.Tuesday,
+			time.Wednesday,
+			time.Thursday,
+			time.Friday,
+			time.Saturday,
+			time.Sunday,
+		}
+	)
 	ticketReport = make(map[time.Weekday][]string, dayOfWeek)
-	var state map[string]int
 	state = make(map[string]int)
-	var parseField time.Weekday
 	for _, ticket := range tickets {
 		if opened {
 			parseField = ticket.ISOOpened.Weekday()
+			ticketReport[parseField] = append(ticketReport[parseField], fmt.Sprintf("<%s=%s|#%s> - %s - %s\n", url, ticket.Number, ticket.Number, ticket.State, ticket.Owner))
 		} else {
 			parseField = ticket.ISOClosed.Weekday()
+			ticketReport[parseField] = append(ticketReport[parseField], fmt.Sprintf("<%s=%s|#%s> - %s\n", url, ticket.Number, ticket.Number, ticket.Owner))
 		}
-		ticketReport[parseField] = append(ticketReport[parseField], fmt.Sprintf("<%s=%s|#%s> - %s - %s\n", url, ticket.Number, ticket.Number, ticket.State, ticket.Owner))
 		st := strings.Replace(strings.Split(ticket.State, "-")[0], " ", "", -1)
 		state[st] = state[st] + 1
 	}
-	var Weekdays = []time.Weekday{
-		time.Monday,
-		time.Tuesday,
-		time.Wednesday,
-		time.Thursday,
-		time.Friday,
-		time.Saturday,
-		time.Sunday,
-	}
 	for _, day := range Weekdays {
-		field := slack.AttachmentField{
-			Title: fmt.Sprintf("%s -> %d", day.String(), len(ticketReport[day])),
-			Value: fmt.Sprintf("\n%s\n", strings.Join(ticketReport[day], "")),
-			Short: false,
+		if len(ticketReport[day]) != 0 {
+			field := slack.AttachmentField{
+				Title: fmt.Sprintf("%s -> %d", day.String(), len(ticketReport[day])),
+				Value: fmt.Sprintf("```\n%s```", strings.Join(ticketReport[day], "")),
+				Short: false,
+			}
+			fields = append(fields, field)
 		}
-		fields = append(fields, field)
 	}
 	if opened {
 		field := slack.AttachmentField{
@@ -178,9 +207,10 @@ func buildMessage(prefix string,
 	color string,
 	fields []slack.AttachmentField) slack.Attachment {
 	attachment := slack.Attachment{
-		Pretext: prefix,
-		Color:   color,
-		Fields:  fields,
+		Pretext:    prefix,
+		Color:      color,
+		Fields:     fields,
+		MarkdownIn: []string{"pretext", "text", "fields"},
 	}
 	return attachment
 }
@@ -549,7 +579,6 @@ func handleBotCommands(c chan AttachmentChannel) {
 			}
 			attachment = buildMessage("Closed tickets", "#0a84c1", fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
-			//
 			c <- attachmentChannel
 		case "last":
 			year, week := time.Now().ISOWeek()
@@ -589,6 +618,22 @@ func handleBotCommands(c chan AttachmentChannel) {
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 		case "backlog":
+			r, err := getRequest(fmt.Sprintf("%s/tickets/active", *API))
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			var tickets []tickets.Ticket
+			err = json.Unmarshal(r, &tickets)
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			fields, err := parseActiveTickets(tickets)
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			attachment := buildMessage("Backlog", "#0a84c1", fields)
+			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
+			c <- attachmentChannel
 		default:
 			fields := make([]slack.AttachmentField, 0)
 			fields = append(fields, slack.AttachmentField{

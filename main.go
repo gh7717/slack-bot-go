@@ -69,6 +69,9 @@ var (
 
 const (
 	dayOfWeek = 7
+	ERROR     = "#ff5151"
+	WARN      = "#f9ff03"
+	OK        = "#36a64f"
 )
 
 func init() {
@@ -87,10 +90,12 @@ func parseActiveTickets(tickets []tickets.Ticket) ([]slack.AttachmentField, erro
 	for _, ticket := range tickets {
 		st := strings.Replace(strings.Split(ticket.State, "-")[0], " ", "", -1)
 		state[st] = state[st] + 1
+		opened := ticket.ISOOpened.Format(time.RFC3339)
+		lastModified := ticket.ISOLastModified.Format(time.RFC3339)
 		field := slack.AttachmentField{
 			//Title: fmt.Sprintf("<%s=%s|#%s> - sev: %s - %s - %s", url, ticket.Number, ticket.Number, ticket.Sev, ticket.State, ticket.Owner),
-			Value: fmt.Sprintf("```<%s=%s|#%s> - sev: %s - %s - %s\nOpened:  %s\t Last modified: %s```", url, ticket.Number, ticket.Number, ticket.Sev, ticket.State, ticket.Owner, ticket.Opened, ticket.LastModified),
-			Short: true,
+			Value: fmt.Sprintf("```<%s=%s|#%s> - sev: %s - %s - %s\nOpened:  %s\t Last modified: %s```", url, ticket.Number, ticket.Number, ticket.Sev, ticket.State, ticket.Owner, opened, lastModified),
+			Short: false,
 		}
 		fields = append(fields, field)
 	}
@@ -262,7 +267,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 					})
 				}
 			}
-			attachment := buildMessage("Command List", "#B733FF", fields)
+			attachment := buildMessage("Command List", OK, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 
@@ -631,7 +636,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			if err != nil {
 				log.Printf("%s", err)
 			}
-			attachment := buildMessage("Backlog", "#0a84c1", fields)
+			attachment := buildMessage("Backlog", OK, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 		default:
@@ -640,7 +645,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 				Title: "",
 				Value: fmt.Sprintf("Not sure what do you mean: %s", commandArray[1]),
 			})
-			attachment := buildMessage("Error", "#0a84c1", fields)
+			attachment := buildMessage("Error", ERROR, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 		}

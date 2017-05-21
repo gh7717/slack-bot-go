@@ -35,6 +35,16 @@ type UserInfo struct {
 	Engineer bool   `json:"engineer"`
 	Attuid   string `json:"attuid"`
 }
+type Field struct {
+	Num   string `json:"num"`
+	State string `json:"state"`
+	Owner string `json:"owner"`
+}
+type jobs struct {
+	//ID      string  `json:"_id"`
+	//Owner   string  `json:"owner"`
+	Tickets []Field `json:"tickets"`
+}
 
 /*
 type Message struct {
@@ -162,6 +172,25 @@ func parseTickets(tickets []tickets.Ticket, opened bool) ([]slack.AttachmentFiel
 		fields = append(fields, field)
 	}
 	return fields, nil
+}
+func parseWorkload(workload []jobs) ([]slack.AttachmentField, error) {
+	url := "https://www.e-access.att.com/ushportal/search1.cfm?searchtype=SeeTkt&criteria"
+	fields := make([]slack.AttachmentField, 0)
+	for _, job := range workload {
+		owner := fmt.Sprintf("%s: %d", job.Tickets[0].Owner, len(job.Tickets))
+		workload := "```"
+		for _, ticket := range job.Tickets {
+			workload = fmt.Sprintf("%s\n<%s=%s|#%s> - %s", workload, url, ticket.Num, ticket.Num, ticket.State)
+		}
+		field := slack.AttachmentField{
+			Title: owner,
+			Value: fmt.Sprintf("%s```", workload),
+			Short: false,
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
+
 }
 func getRequest(uri string) (body []byte, err error) {
 	resp, err := http.Get(uri)
@@ -637,6 +666,23 @@ func handleBotCommands(c chan AttachmentChannel) {
 				log.Printf("%s", err)
 			}
 			attachment := buildMessage("Backlog", OK, fields)
+			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
+			c <- attachmentChannel
+		case "workload":
+			r, err := getRequest(fmt.Sprintf("%s/workload", *API))
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			var workload []jobs
+			err = json.Unmarshal(r, &workload)
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			fields, err := parseWorkload(workload)
+			if err != nil {
+				log.Printf("%s", err)
+			}
+			attachment := buildMessage("Workload", OK, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 		default:

@@ -89,7 +89,6 @@ func init() {
 	channelId = flag.String("channel", "G2VLDKLSX", "slack channel ID")
 	API = flag.String("api", "http://localhost:8080/api", "API url")
 	token = flag.String("crednetial", "xoxb-88562823922-NYJLdNas6mwYuYiNjLVmPMWf", "slack bot token")
-	flag.Parse()
 
 }
 func parseActiveTickets(tickets []tickets.Ticket) ([]slack.AttachmentField, error) {
@@ -357,7 +356,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			for i := 0; i < number_of_users; i++ {
 				field := slack.AttachmentField{
 					Title: "",
-					Value: fmt.Sprintf("<@%s>", blacklisted_users[i].ID),
+					Value: fmt.Sprintf("%s", blacklisted_users[i].RealName),
 					//Short: false,
 				}
 				fields[i] = field
@@ -406,6 +405,10 @@ func handleBotCommands(c chan AttachmentChannel) {
 					attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 					c <- attachmentChannel
 				} else {
+					// get information about the user. Need to have slack ID and user name to print this information.
+					// possibly need to change api service.
+
+					// ^ implementation should be there.
 					mentionedUser := commandArray[2][2 : len(commandArray[2])-1]
 					fields := make([]slack.AttachmentField, 0)
 					_, err := getRequest(*API + "/user/blacklist/" + mentionedUser)
@@ -668,7 +671,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			attachment := buildMessage("Backlog", OK, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
-		case "workload":
+		case "count":
 			r, err := getRequest(fmt.Sprintf("%s/workload", *API))
 			if err != nil {
 				log.Printf("%s", err)
@@ -682,7 +685,7 @@ func handleBotCommands(c chan AttachmentChannel) {
 			if err != nil {
 				log.Printf("%s", err)
 			}
-			attachment := buildMessage("Workload", OK, fields)
+			attachment := buildMessage("Count", OK, fields)
 			attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
 			c <- attachmentChannel
 		default:
@@ -758,11 +761,12 @@ func getIpAddress() (string, error) {
 const botRestarted = "The bot has been restarted. \nCurrent ip: "
 
 func main() {
+	flag.Parse()
 	logger := log.New(os.Stdout, "slack-bot: ", log.Lshortfile|log.LstdFlags)
 	slack.SetLogger(logger)
 
 	api = slack.New(*token)
-	api.SetDebug(false)
+	api.SetDebug(true)
 
 	rtm := api.NewRTM()
 

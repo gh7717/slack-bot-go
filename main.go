@@ -410,14 +410,19 @@ func handleBotCommands(c chan AttachmentChannel) {
 
 					// ^ implementation should be there.
 					mentionedUser := commandArray[2][2 : len(commandArray[2])-1]
+					printedUserName, err := api.GetUserInfo(mentionedUser)
+					if err != nil {
+						log.Printf("error: can't get information about the user %s", err)
+						return
+					}
 					fields := make([]slack.AttachmentField, 0)
-					_, err := getRequest(*API + "/user/blacklist/" + mentionedUser)
+					_, err = getRequest(*API + "/user/blacklist/" + mentionedUser)
 					if err != nil {
 						log.Printf("error: get %s/blacklist/ - %s", *API, err)
 					}
 					fields = append(fields, slack.AttachmentField{
 						Title: "",
-						Value: fmt.Sprintf("The user <@%s> has been blacklisted", mentionedUser),
+						Value: fmt.Sprintf("The user %s has been blacklisted", printedUserName.Profile.RealName),
 					})
 					attachment := buildMessage("", "#0a84c1", fields)
 					attachmentChannel.Attachment = append(attachmentChannel.Attachment, attachment)
